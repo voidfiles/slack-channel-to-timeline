@@ -1,2 +1,7 @@
 SlackExtract
 .env
+*.cache.json
+*.json
+.DS_Store
+.cache/
+__pycache__/

@@ -1,7 +1,8 @@
 requests
-colorama
-termcolor
 environs
 slack_sdk
+Jinja2
+markdown
+htmldocx
 pathlib; python_version < '3.4'
 argparse; python_version < '3.2'

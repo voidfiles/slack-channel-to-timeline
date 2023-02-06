@@ -1,0 +1,53 @@
+<html>
+    <head>
+        <title>An Incident Timeline</title>
+        <style>
+            html {
+                display: table;
+                margin: auto;
+            }
+            body {
+                width: 90%;
+                margin: autp;
+                max-width: 800px; 
+                display: table-cell;
+                vertical-align: middle;
+            }
+            .header {
+                padding: 0;
+                margin: 0;
+            }
+            .slack-render {
+                margin-top: 10px;
+            }
+            .slack-render p:first-child {
+                margin-top: 4px;
+            }
+
+            .name {
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>An Incident Timeline</h1>
+        {% for message in messages %}
+            <p class="header">{{message.datetime}} (since last {{render_delta(message.delta_from_last)}}) (since start {{render_delta(message.delta_from_start)}} )</p>
+            <p class="header"><span class="name">{{message.user.name}} ({{message.user.real_name_normalized}})</span></p>
+            <div class="slack-render">
+                {{ render_slack(message.text) | safe }}
+            </div>
+            {% if message.files %}
+                <table class="files">
+                    <tr>
+                    {% for file in message.files %}
+                    <td>
+                        {{ render_thumbnail(file) | safe }}
+                    </td>
+                    {% endfor %}
+                    </tr>
+                </table>
+            {% endif %}
+        {% endfor %}
+    </body>
+</html>
