@@ -42,8 +42,21 @@ SLACK_TOKEN={Add the token value here (w/o {}, or quotes)}
 
 Run `make test`, it will let you know if you have everything setup correctly.
 
-## Extracting a Channel
+## Turning a channel into a timeline report
 
 Find the channel you'd like to extract and run this command.
 
-`CHANNEL_ID=CFQLH5U2C make channel`
+```
+CHANNEL_ID=CXXXX make channel > channel_name.json
+JSON_FILE=channel_name.json make report > report.html
+```
+
+Now, you can open the report.html in a browser, see if it works for you.
+
+For folks who want to final result in google docs, it's recommend that you convert it to a docx first and then upload.
+
+```
+HTML_FILE=report.html DOC_FILE=report make convert
+```
+
+Now, you'll have a docx that you can upload to google docs where you can add more context.
