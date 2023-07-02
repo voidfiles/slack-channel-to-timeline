@@ -2,6 +2,8 @@
 
 import argparse
 from datetime import datetime, date, timedelta
+import time
+import sys
 import json
 import re
 import json
@@ -17,11 +19,15 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from htmldocx import HtmlToDocx
 
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from dataclasses import dataclass, is_dataclass, asdict
 
 USERNAME_RE = re.compile(r'<@([^>]*)>')
 LINK_RE = re.compile(r'<([^>]*)>')
 CACHE_DIR = ".cache"
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, o):
@@ -63,7 +69,19 @@ def render_thumbnail(file):
         return f'<a href="{file["url_private"]}">{file["filetype"]}</a>'
 
     data_url = f"./{CACHE_DIR}/{file['thumbnail_url_hash']}"
-    return f'<a href="{file["url_private"]}"><img src="{data_url}" style="max-width: 150px;" /></a>'
+    return f'<a href="{file["url_private"]}"><img src="{data_url}" style="max-width: 150px;"></a>'
+
+def render_thumbnail_as_data_url(file):
+    if not file.get('thumbnail_url'):
+        return f'<a href="{file["url_private"]}">{file["filetype"]}</a>'
+
+    if not file.get('thumbnail_url_hash'):
+        return "<span></span>"
+    try:
+        data_url = img_to_data(f"./{CACHE_DIR}/{file['thumbnail_url_hash']}")
+    except:
+        return "<span></span>"
+    return f'<a href="{file["url_private"]}">image</a>'
 
 def render_user_img(user):
     img_url_hash = user.get('img_url_hash')
@@ -212,6 +230,25 @@ class Message:
             files=[File.from_dict(x) for x in msg.get('files', [])]
         )
 
+def retry_paginator(func):
+    resp = None
+    while 1:
+        try:
+            if not resp:
+                resp = func()
+            
+            for page in resp:
+                yield page
+
+            break
+        except StopIteration:
+            break
+        except SlackApiError as e:
+            if e.response.status_code == 429:
+                wait = int(e.response.headers.get('retry-after'))
+                eprint(f"rate limited sleeping {wait + 10} seconds")
+                time.sleep(wait + 10)
+
 def persist_to_file(file_name):
 
     def decorator(original_func):
@@ -233,16 +270,21 @@ def persist_to_file(file_name):
     return decorator
 
 @persist_to_file('_users.cache.json')
-def users(client: WebClient):
+def get_users(client: WebClient):
+    eprint(f"Fetching users from space")
     users = {}
-    for page in client.users_list():
+    i = 0
+    for page in retry_paginator(lambda: client.users_list(limit=1000)):
+        i += 1
+        eprint(f"{i} page fetched")
         for user in page["members"]:
             users[user['id']] = user
 
     return users
 
 @persist_to_file('_emoji.cache.json')
-def emojis(client: WebClient):
+def get_emojis(client: WebClient):
+    eprint(f"fetching emojies")
     response = client.emoji_list()
     emojies = response['emoji']
     for key in emojies.keys():
@@ -339,7 +381,7 @@ if __name__ == '__main__':
     )
 
     template_engine.globals.update(linkify=process_text_for_links)
-    template_engine.globals.update(render_thumbnail=render_thumbnail)
+    template_engine.globals.update(render_thumbnail=render_thumbnail_as_data_url)
     template_engine.globals.update(render_user_img=render_user_img)
     template_engine.globals.update(render_slack=render_slack)
     template_engine.globals.update(render_delta=render_delta)
@@ -374,9 +416,11 @@ if __name__ == '__main__':
         with open(name) as fd:
             data = json.load(fd)
 
-        cache_thumbs(data, cookie)
+        # cache_thumbs(data, cookie)
         data.reverse()
         data = annotate_with_time(data)
+        data = [x for x in data if "has joined the channel" not in x['text']]
+        data = [x for x in data if x.get('user', {}).get('name', '') != 'incident_reporter']
         print(template.render(messages=data))
         exit(0)
 
@@ -390,12 +434,13 @@ if __name__ == '__main__':
         exit(0)
 
     if args.channel:
-        users = users(client)
-        emojis = emojis(client)
+        users = get_users(client)
+        emojis = get_emojis(client)
         channel_id = env('CHANNEL_ID', False)
         if not channel_id:
             print("We need a channel ID to extract a channel\n")
             exit(1)
 
+        eprint(f"Archiving channel: {channel_id}")
         messages = [msg for msg in extract_channel(client, channel_id, users, emojis)]
         print(json.dumps(messages, cls=EnhancedJSONEncoder))
